@@ -53,6 +53,11 @@ contract HaloMembershipPass is
         _;
     }
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         string memory name_,
         string memory symbol_,
