@@ -36,8 +36,8 @@ contract HaloMembershipPass is
     mapping(address user => bool) public isMinted; // whether  user has participated in mint activities
     uint256 public publicMintUpperLimit; // the upper limit of "public mint activity"
 
-    address public payCurrency; // the currency of mint fee
-    uint256 public price; // the price of minting an nft
+    mapping(address token => bool) public isCurrencyEnabled; // the currency of mint fee
+    mapping(address token => uint256) public currencyAmountPerToken; // the price of minting an nft
     address public feeRecipient;
 
     uint256 public startTimestamp;
@@ -80,10 +80,12 @@ contract HaloMembershipPass is
     /// @param proof The merkle proof for msg.sender
     /// @param nftLevels level of each nft, the length of array is the number of NFTs finally received by the user
     /// @param discount Percentage scale: 90 means 10% off, 100 means no discount
+    /// @param payCurrency The currency selected by the user to pay the mint fee
     function initialMint(
         bytes32[] calldata proof,
         uint8[] calldata nftLevels,
-        uint256 discount
+        uint256 discount,
+        address payCurrency
     ) external payable callerIsUser nonReentrant whenNotPaused {
         // Verify parameters
         require(
@@ -96,6 +98,7 @@ contract HaloMembershipPass is
                 discount <= SCALE_DECIMAL,
             "Invalid parameters"
         );
+        require(isCurrencyEnabled[payCurrency], "Invalid currency");
 
         require(!isMinted[msg.sender], "Already Minted");
         //  Merkle verify
@@ -109,8 +112,10 @@ contract HaloMembershipPass is
 
         // Charge the mint fee
         uint256 nftAmount = nftLevels.length;
-        uint256 payAmount = (nftAmount * price * discount) / SCALE_DECIMAL;
-        _chargeMintFee(payAmount);
+        uint256 payAmount = (nftAmount *
+            currencyAmountPerToken[payCurrency] *
+            discount) / SCALE_DECIMAL;
+        _chargeMintFee(payCurrency, payAmount);
 
         // Mint tokens
         for (uint256 i = 0; i < nftAmount; i++) {
@@ -131,10 +136,12 @@ contract HaloMembershipPass is
     /// @param discount Percentage scale: 90 means 10% off, 100 means no discount
     /// @param sigExpiredAt The expiration time of adminSig
     /// @param adminSig The admin signature for msg.sender
+    /// @param payCurrency The currency selected by the user to pay the mint fee
     function publicMint(
         uint256 discount,
         uint256 sigExpiredAt,
-        bytes calldata adminSig
+        bytes calldata adminSig,
+        address payCurrency
     ) external payable callerIsUser nonReentrant whenNotPaused {
         // Verify parameters
         require(adminSigner != address(0), "Invalid signer");
@@ -144,6 +151,8 @@ contract HaloMembershipPass is
                 discount <= SCALE_DECIMAL,
             "Invalid parameters"
         );
+        require(isCurrencyEnabled[payCurrency], "Invalid currency");
+
         // Verify signature
         require(
             verifyAdminSig(
@@ -161,7 +170,10 @@ contract HaloMembershipPass is
         publicMintUpperLimit--;
 
         // Charge the mint fee
-        _chargeMintFee((price * discount) / SCALE_DECIMAL);
+        _chargeMintFee(
+            payCurrency,
+            (currencyAmountPerToken[payCurrency] * discount) / SCALE_DECIMAL
+        );
         // Mint a level1 nft
         uint256 newTokenId = ++currentIndex;
         levelOfToken[newTokenId] = 1;
@@ -344,12 +356,19 @@ contract HaloMembershipPass is
         publicMintUpperLimit = newLimit;
     }
 
-    function setPayCurrencyAndPrice(
+    function enablePayCurrency(
         address newCurrency,
         uint256 newPrice
     ) external onlyOwner {
-        payCurrency = newCurrency;
-        price = newPrice;
+        // if newCurrency=address(0), it means native token
+        // if newPrice=0, it means free for all users
+        isCurrencyEnabled[newCurrency] = true;
+        currencyAmountPerToken[newCurrency] = newPrice;
+    }
+
+    function disablePayCurrency(address currency) external onlyOwner {
+        isCurrencyEnabled[currency] = false;
+        currencyAmountPerToken[currency] = 0;
     }
 
     function pause() external onlyOwner {
@@ -396,7 +415,7 @@ contract HaloMembershipPass is
         return _baseURIextended;
     }
 
-    function _chargeMintFee(uint256 payAmount) internal {
+    function _chargeMintFee(address payCurrency, uint256 payAmount) internal {
         if (payAmount == 0) return;
         if (payCurrency == address(0)) {
             // native token
