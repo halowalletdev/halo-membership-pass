@@ -30,7 +30,9 @@ contract HaloMembershipPass is
     uint256 public currentIndex; // current tokenId(number) of "minted" (start from 1.）
     uint256 public totalSupplyAll; // total number of each level
     mapping(uint8 level => uint256) public totalSupply;
-    uint256 public level5and6Proportion; // the upper limit of the percentage of level5 and level6
+    uint256 public level5UpperProportion; // the upper limit of the percentage of level5
+    uint256 public level6UpperProportion; // the upper limit of the percentage of level6
+
     mapping(uint256 tokenId => uint8 level) public levelOfToken; // the level of each token
 
     mapping(address user => bool) public isMinted; // whether  user has participated in mint activities
@@ -62,10 +64,11 @@ contract HaloMembershipPass is
         string memory name_,
         string memory symbol_,
         address feeRecipient_,
-        uint256 level5and6Proportion_
+        uint256 level6UpperProportion_
     ) public initializer {
         feeRecipient = feeRecipient_;
-        level5and6Proportion = level5and6Proportion_;
+        level5UpperProportion = 100;
+        level6UpperProportion = level6UpperProportion_;
 
         __ReentrancyGuard_init();
         __Pausable_init();
@@ -200,13 +203,8 @@ contract HaloMembershipPass is
         );
 
         // Limit the maximum quantity
-        if (toLevel >= 5) {
-            require(
-                totalSupply[5] + totalSupply[6] <
-                    (totalSupplyAll * level5and6Proportion) / SCALE_DECIMAL,
-                "Exceed the target proportion"
-            );
-        }
+        require(canUpgradeTo(toLevel), "Exceed the target proportion");
+
         // the main profile nft is used by default
         uint256 tokenId = userMainProfile[msg.sender];
         require(
@@ -257,10 +255,19 @@ contract HaloMembershipPass is
     }
 
     //////////////// public functions /////////////////
-    function canUpgradeToLevel5orLevel6() public view returns (bool) {
-        return
-            totalSupply[5] + totalSupply[6] <
-            (totalSupplyAll * level5and6Proportion) / SCALE_DECIMAL;
+    function canUpgradeTo(uint8 toLevel) public view returns (bool) {
+        if (toLevel > 1 && toLevel < 5) return true;
+        if (toLevel == 5) {
+            return
+                totalSupply[5] <
+                (totalSupplyAll * level5UpperProportion) / SCALE_DECIMAL;
+        }
+        if (toLevel == 6) {
+            return
+                totalSupply[6] <
+                (totalSupplyAll * level6UpperProportion) / SCALE_DECIMAL;
+        }
+        return false;
     }
 
     function ownersOf(
@@ -332,9 +339,16 @@ contract HaloMembershipPass is
         feeRecipient = newRecipient;
     }
 
-    function setLevel5and6Proportion(uint256 newProportion) external onlyOwner {
-        require(newProportion <= 100, "Invalid proportion");
-        level5and6Proportion = newProportion;
+    function setLevel5and6Proportion(
+        uint256 newLevel5Proportion,
+        uint256 newLevel6Proportion
+    ) external onlyOwner {
+        require(
+            newLevel5Proportion <= 100 && newLevel6Proportion <= 100,
+            "Invalid proportion"
+        );
+        level5UpperProportion = newLevel5Proportion;
+        level6UpperProportion = newLevel6Proportion;
     }
 
     function setInitialMintParams(
