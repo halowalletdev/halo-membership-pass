@@ -8,6 +8,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "./EventsAndErrors.sol";
 
 /**
@@ -246,13 +247,13 @@ contract HaloMembershipPass is
         emit MainProfileSet(msg.sender, 0);
     }
 
-    function burn(uint256 tokenId) public {
-        require(
-            _isApprovedOrOwner(msg.sender, tokenId),
-            "Not token owner or approved"
-        );
-        _burn(tokenId);
-    }
+    // function burn(uint256 tokenId) public {
+    //     require(
+    //         _isApprovedOrOwner(msg.sender, tokenId),
+    //         "Not token owner or approved"
+    //     );
+    //     _burn(tokenId);
+    // }
 
     //////////////// public functions /////////////////
     function canUpgradeTo(uint8 toLevel) public view returns (bool) {
@@ -375,7 +376,7 @@ contract HaloMembershipPass is
         uint256 newPrice
     ) external onlyOwner {
         // if newCurrency=address(0), it means native token
-        // if newPrice=0, it means free for all users
+        require(newPrice > 0, "Invalid price");
         isCurrencyEnabled[newCurrency] = true;
         currencyAmountPerToken[newCurrency] = newPrice;
     }
@@ -434,7 +435,7 @@ contract HaloMembershipPass is
         if (payCurrency == address(0)) {
             // native token
             require(msg.value >= payAmount, "Insufficient payment amount");
-            payable(feeRecipient).transfer(msg.value);
+            Address.sendValue(payable(feeRecipient), msg.value);
         } else {
             // erc20 token
             SafeERC20.safeTransferFrom(
