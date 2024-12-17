@@ -50,6 +50,9 @@ contract HaloMembershipPass is
     mapping(address => uint256) public userMainProfile; // user address--> main tokenId
 
     address public adminSigner;
+    // v2 add
+    mapping(uint8 toLevel => mapping(address currency => uint256))
+        public minPayAmtToUpgrade;
 
     modifier callerIsUser() {
         require(tx.origin == msg.sender, "The caller is another contract");
@@ -234,6 +237,71 @@ contract HaloMembershipPass is
         emit MainProfileSet(msg.sender, newTokenId);
     }
 
+    // v2 add
+    function upgradeMainProfileWithToken(
+        uint8 toLevel,
+        address payCurrency,
+        uint256 payAmount,
+        uint256 sigExpiredAt,
+        bytes calldata adminSig
+    ) external payable nonReentrant whenNotPaused {
+        // Verify parameters
+        require(adminSigner != address(0), "Invalid signer");
+        require(
+            adminSig.length > 0 &&
+                sigExpiredAt > block.timestamp &&
+                toLevel <= MAX_LEVEL,
+            "Invalid parameters"
+        );
+        require(isCurrencyEnabled[payCurrency], "Invalid currency");
+        require(
+            payAmount >= minPayAmtToUpgrade[toLevel][payCurrency],
+            "Invalid amount"
+        );
+        // Verify signature
+        require(
+            verifyAdminSig(
+                keccak256(
+                    abi.encode(
+                        msg.sender,
+                        toLevel,
+                        payCurrency,
+                        payAmount,
+                        sigExpiredAt
+                    )
+                ),
+                adminSig
+            ),
+            "Invalid signature"
+        );
+
+        // Limit the maximum quantity
+        require(canUpgradeTo(toLevel), "Exceed the target proportion");
+
+        // the main profile nft is used by default
+        uint256 tokenId = userMainProfile[msg.sender];
+        require(
+            tokenId != 0 && ownerOf(tokenId) == msg.sender,
+            "Not user's main profile"
+        );
+
+        require(toLevel == levelOfToken[tokenId] + 1, "Invalid target level");
+        // Charge the mint fee
+        _chargeMintFee(payCurrency, payAmount);
+
+        // Upgrade：1.burn old token 2.mint new token
+        _burn(tokenId); // unbind main profile simultaneously
+        uint256 newTokenId = ++currentIndex;
+        levelOfToken[newTokenId] = toLevel;
+        _safeMint(msg.sender, newTokenId);
+        // bind the new token as main profile(because the old main profile has burnt)
+        userMainProfile[msg.sender] = newTokenId;
+        upgradedFrom[newTokenId] = tokenId;
+
+        emit NFTUpgraded(msg.sender, tokenId, newTokenId, toLevel);
+        emit MainProfileSet(msg.sender, newTokenId);
+    }
+
     /// @notice Bind an nft held by user as main nft
     function bindMainProfile(uint256 tokenId) external {
         require(ownerOf(tokenId) == msg.sender, "Not token owner");
@@ -369,6 +437,15 @@ contract HaloMembershipPass is
 
     function setPublicMintUpperLimit(uint256 newLimit) external onlyOwner {
         publicMintUpperLimit = newLimit;
+    }
+
+    // v2 add
+    function setMinPayAmountToUpgrade(
+        uint8 toLevel,
+        address payCurrency,
+        uint256 minPayAmount
+    ) external onlyOwner {
+        minPayAmtToUpgrade[toLevel][payCurrency] = minPayAmount;
     }
 
     function enablePayCurrency(
