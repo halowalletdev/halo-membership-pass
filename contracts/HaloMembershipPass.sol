@@ -239,6 +239,7 @@ contract HaloMembershipPass is
 
     // v2 add
     function upgradeMainProfileWithToken(
+        uint256 tokenId,
         uint8 toLevel,
         address payCurrency,
         uint256 payAmount,
@@ -264,6 +265,7 @@ contract HaloMembershipPass is
                 keccak256(
                     abi.encode(
                         msg.sender,
+                        tokenId,
                         toLevel,
                         payCurrency,
                         payAmount,
@@ -278,10 +280,10 @@ contract HaloMembershipPass is
         // Limit the maximum quantity
         require(canUpgradeTo(toLevel), "Exceed the target proportion");
 
-        // the main profile nft is used by default
-        uint256 tokenId = userMainProfile[msg.sender];
+        // the token is the main profile
         require(
-            tokenId != 0 && ownerOf(tokenId) == msg.sender,
+            ownerOf(tokenId) == msg.sender &&
+                userMainProfile[msg.sender] == tokenId,
             "Not user's main profile"
         );
 
